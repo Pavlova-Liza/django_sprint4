@@ -9,7 +9,8 @@ import pytz
 class PostForm(forms.ModelForm):
     class Meta:
         model = Post
-        fields = ('title', 'text', 'image', 'pub_date', 'location', 'category')
+        fields = ('title', 'text', 'image', 'pub_date',
+                  'location', 'category', 'is_published')
         widgets = {'pub_date': forms.DateTimeInput(
                    attrs={'type': 'datetime-local'}),
                    'text': forms.Textarea(attrs={'cols': 10, 'rows': 10})}
