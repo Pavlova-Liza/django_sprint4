@@ -6,6 +6,20 @@ from django.contrib.auth.decorators import login_required
 from .forms import CommentForm, PostForm, UserForm
 from users.forms import User
 from django.db.models import Count
+from datetime import datetime, timezone, timedelta
+
+
+# Вычисление одной страницы пагинатора
+def get_page_obj(the_set, request):
+    paginator = Paginator(the_set, 10)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+    return page_obj
+
+
+# Фильтрация записей по опубликованности
+def date_sort(the_set):
+    return the_set.order_by('-pub_date')
 
 
 # Добавить пост
@@ -15,9 +29,11 @@ def create_post(request):
     template = 'blog/create.html'
     context = {'form': form}
     if form.is_valid():
-        comment = form.save(commit=False)
-        comment.author = request.user
-        comment.save()
+        post = form.save(commit=False)
+        post.author = request.user
+        post.pub_date = post.pub_date.replace(tzinfo=timezone(
+            timedelta(hours=0, minutes=0)))
+        post.save()
         return redirect('blog:profile', username=request.user.username)
     return render(request, template, context)
 
@@ -65,12 +81,8 @@ def index(request):
     posts = Post.objects.select_related('category').filter(
         is_published=True, category__is_published=True,
         pub_date__lte=datetime.now()).select_related(
-        'category').annotate(comment_count=Count('comments')).order_by(
-        '-pub_date')
-
-    paginator = Paginator(posts, 10)
-    page_number = request.GET.get('page')
-    page_obj = paginator.get_page(page_number)
+        'category').annotate(comment_count=Count('comments'))
+    page_obj = get_page_obj(date_sort(posts), request)
     context = {'page_obj': page_obj}
     return render(request, template, context)
 
@@ -110,14 +122,12 @@ def category_posts(request, category_slug):
     category_posts = Post.objects.select_related('category').filter(
         is_published=True, category__is_published=True,
         category__pk=the_category['id'],
-        pub_date__lte=datetime.now()).order_by('-pub_date')
+        pub_date__lte=datetime.now())
 
     for post in category_posts:
         post.comment_count = Comment.objects.filter(post=post.id).count()
 
-    paginator = Paginator(category_posts, 10)
-    page_number = request.GET.get('page')
-    page_obj = paginator.get_page(page_number)
+    page_obj = get_page_obj(date_sort(category_posts), request)
 
     context = {'category': the_category,
                'page_obj': page_obj}
@@ -129,15 +139,17 @@ def profile(request, username):
     template = "blog/profile.html"
     profile = get_object_or_404(User, username=username)
 
-    author_posts = Post.objects.select_related('author').filter(
-        author__username=username,).order_by('-pub_date')
+    if request.user == get_object_or_404(User.objects.
+                                         filter(username=username)):
+        author_posts = Post.objects.select_related('author').filter(
+            author__username=username,).annotate(
+            comment_count=Count('comments'))
+    else:
+        author_posts = Post.objects.select_related('author').filter(
+            author__username=username, is_published=True).annotate(
+            comment_count=Count('comments'))
 
-    for post in author_posts:
-        post.comment_count = Comment.objects.filter(post=post.id).count()
-
-    paginator = Paginator(author_posts, 10)
-    page_number = request.GET.get('page')
-    page_obj = paginator.get_page(page_number)
+    page_obj = get_page_obj(date_sort(author_posts), request)
 
     context = {'page_obj': page_obj,
                'profile': profile, }
